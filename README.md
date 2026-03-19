@@ -67,6 +67,7 @@ Se utilizan operaciones de pandas como:
 
 ### 🔹 Visualización
 - Generación de WordCloud de hashtags más frecuentes
+- Visualización interactiva mediante Streamlit
 
 ---
 
@@ -77,6 +78,7 @@ Se utilizan operaciones de pandas como:
 - Regex (re)
 - Matplotlib
 - WordCloud
+- Streamlit
 
 ---
 
@@ -89,12 +91,17 @@ git clone <repo-url>
 
 2. Instalar dependencias:
 ```bash
-pip install pandas matplotlib wordcloud
+pip install pandas matplotlib wordcloud streamlit
 ```
 
-3. Ejecutar el notebook:
+3. Ejecutar el notebook (opcional):
 - Abrir el archivo `.ipynb`
 - Ejecutar las celdas en orden
+
+4. Ejecutar el dashboard con Streamlit:
+```bash
+streamlit run app-streamlit.py
+```
 
 ---
 
@@ -105,7 +112,7 @@ Se obtiene:
 - ranking de hashtags más utilizados
 - análisis de uso por usuario
 - evolución temporal de hashtags
-- visualización mediante WordCloud
+- visualización mediante WordCloud y dashboard interactivo
 
 ---
 

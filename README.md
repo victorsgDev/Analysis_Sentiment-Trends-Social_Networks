@@ -100,9 +100,14 @@ Se utilizan operaciones de pandas como:
 git clone <repo-url>
 ```
 
-2. Instalar dependencias:
+2.1 Instalar dependencias:
 ```bash
 pip install pandas matplotlib wordcloud streamlit
+```
+2.2 Reproducibilidad:
+Para facilitar la ejecución del proyecto en otros entornos, se incluye un archivo `requirements.txt` con todas las dependencias necesarias.
+```bash
+pip install -r requirements.txt
 ```
 
 3. Ejecutar el notebook (opcional):

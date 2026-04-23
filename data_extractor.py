@@ -132,3 +132,45 @@ class DataExtractor:
         plt.imshow(wordcloud, interpolation="bilinear")
         plt.axis("off")
         plt.show()
+
+    def save_results(self, output_dir: str = "output"):
+        """
+        Guarda el dataset limpio y los resultados del análisis en CSV (UTF-8).
+        """
+
+        if self.data is None:
+            raise ValueError("Data not loaded. Please call load_data() first.")
+
+        # Crear carpeta si no existe
+        os.makedirs(output_dir, exist_ok=True)
+
+        # DATASET LIMPIO
+        df = self.data.copy()
+        df["cleaned_text"] = df["text"].apply(self.clean_text)
+
+        df.to_csv(
+            os.path.join(output_dir, "cleaned_dataset.csv"),
+            index=False,
+            encoding="utf-8"
+        )
+
+        # RESULTADOS ANÁLISIS
+        results = self.analytics_hashtags_extended()
+
+        results["overall"].to_csv(
+            os.path.join(output_dir, "hashtags_overall.csv"),
+            index=False,
+            encoding="utf-8"
+        )
+
+        results["by_user"].to_csv(
+            os.path.join(output_dir, "hashtags_by_user.csv"),
+            index=False,
+            encoding="utf-8"
+        )
+
+        results["by_date"].to_csv(
+            os.path.join(output_dir, "hashtags_by_date.csv"),
+            index=False,
+            encoding="utf-8"
+        )

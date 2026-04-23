@@ -40,6 +40,17 @@ Se ha desarrollado la clase `DataExtractor`, que encapsula todo el pipeline:
 - Lectura de archivos CSV
 - Manejo de datasets grandes
 
+### 🔹 Exportación de resultados
+
+El proyecto genera automáticamente archivos CSV en la carpeta `output/`:
+
+- `cleaned_dataset.csv`: dataset limpio
+- `hashtags_overall.csv`: frecuencia global de hashtags
+- `hashtags_by_user.csv`: frecuencia por usuario
+- `hashtags_by_date.csv`: evolución temporal
+
+Esto permite analizar los resultados sin necesidad de ejecutar el código.
+
 ### 🔹 Limpieza de texto
 Se aplican expresiones regulares para:
 - eliminar URLs

@@ -69,6 +69,24 @@ class DataExtractor:
         # devolver lista
         return hashtags
 
+    @staticmethod
+    def extract_keywords(text: str) -> list:
+        """
+        Extrae palabras clave eliminando stopwords básicas.
+        """
+        if not isinstance(text, str):
+            return []
+
+        stopwords = {
+            "the", "and", "is", "in", "to", "of", "for", "on", "with",
+            "this", "that", "a", "an", "rt"
+        }
+
+        words = text.split()
+        keywords = [w for w in words if w not in stopwords and not w.startswith("#")]
+
+        return keywords
+
     def analytics_hashtags_extended(self) -> dict:
         """
         Realiza análisis global, por usuario y por fecha de los hashtags.
@@ -88,7 +106,7 @@ class DataExtractor:
             .value_counts()
             .reset_index()
         )
-        overall.columns = ["hashtag", "frecuency"]
+        overall.columns = ["hashtag", "frequency"]
 
         by_user = (
             df_exploded
@@ -106,7 +124,19 @@ class DataExtractor:
         )
         by_date.columns = ["date", "hashtag", "frequency"]
 
-        return {'overall': overall, 'by_user': by_user, 'by_date': by_date}
+        df["keywords"] = df["cleaned_text"].apply(self.extract_keywords)
+
+        df_keywords = df.explode("keywords").dropna(subset=["keywords"])
+
+        keywords_overall = (
+            df_keywords["keywords"]
+            .value_counts()
+            .reset_index()
+        )
+
+        keywords_overall.columns = ["keyword", "frequency"]
+
+        return {'overall': overall, 'by_user': by_user, 'by_date': by_date, 'keywords_overall': keywords_overall}
 
     def generate_hashtag_wordcloud(self, overall_df: pd.DataFrame = None, max_words: int = 100, figsize: tuple = (10, 6)) -> None:
         """
@@ -118,7 +148,7 @@ class DataExtractor:
                 raise ValueError("Data not loaded. Please call load_data() first.")
             overall_df = self.analytics_hashtags_extended()['overall']
 
-        hashtag_freq = dict(zip(overall_df["hashtag"], overall_df["frecuency"]))
+        hashtag_freq = dict(zip(overall_df["hashtag"], overall_df["frequency"]))
 
         wordcloud = WordCloud(
             width=800,
@@ -129,6 +159,25 @@ class DataExtractor:
 
         plt.figure(figsize=figsize)
         plt.title("WordCloud de Hashtags")
+        plt.imshow(wordcloud, interpolation="bilinear")
+        plt.axis("off")
+        plt.show()
+
+    def generate_keyword_wordcloud(self, keywords_df: pd.DataFrame = None, max_words: int = 100):
+        if keywords_df is None:
+            keywords_df = self.analytics_hashtags_extended()['keywords_overall']
+
+        keyword_freq = dict(zip(keywords_df["keyword"], keywords_df["frequency"]))
+
+        wordcloud = WordCloud(
+            width=800,
+            height=400,
+            background_color="white",
+            max_words=max_words
+        ).generate_from_frequencies(keyword_freq)
+
+        plt.figure(figsize=(10, 6))
+        plt.title("WordCloud de Keywords")
         plt.imshow(wordcloud, interpolation="bilinear")
         plt.axis("off")
         plt.show()

@@ -30,3 +30,10 @@ st.dataframe(results["by_user"].head(top_n))
 # -----------------------
 st.subheader("📅 Hashtags por fecha")
 st.dataframe(results["by_date"].head(top_n))
+
+# -----------------------
+# KEYWORDS
+# -----------------------
+
+st.subheader("🔑 Keywords más frecuentes")
+st.dataframe(results["keywords_overall"].head(top_n))

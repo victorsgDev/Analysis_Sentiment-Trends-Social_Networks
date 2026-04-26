@@ -3,9 +3,12 @@ import re
 import os
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
+import requests
+from dotenv import load_dotenv
+load_dotenv()
 
 class DataExtractor:
-    def __init__(self, source_file: str, chunksize: int = 100000):
+    def __init__(self, source_file: str = None, chunksize: int = 100000):
         """
         Inicializa el extractor con el archivo de origen.
 
@@ -21,6 +24,9 @@ class DataExtractor:
         """
         Carga los datos del archivo de origen y los almacena en self.data.
         """
+        if not self.source_file:
+            raise ValueError("No source file defined.")
+
         if not os.path.exists(self.source_file):
             raise FileNotFoundError(f"File {self.source_file} not found.")
 
@@ -223,3 +229,82 @@ class DataExtractor:
             index=False,
             encoding="utf-8"
         )
+
+    def load_data_api(self, query: str, max_results: int = 100, output_file: str = "data/tweets_from_api.csv") -> pd.DataFrame:
+        """
+        Conecta con la API de Twitter a través de RapidAPI, extrae tweets
+        y guarda una copia local en CSV.
+        """
+
+        api_key = os.getenv("RAPIDAPI_KEY")
+        api_host = os.getenv("RAPIDAPI_HOST", "twitter-api45.p.rapidapi.com")
+
+        if not api_key:
+            raise ValueError(
+                "RapidAPI key not found. Please define RAPIDAPI_KEY as an environment variable."
+            )
+
+        url = "https://twitter-api45.p.rapidapi.com/search.php"
+
+        headers = {
+            "x-rapidapi-key": api_key,
+            "x-rapidapi-host": api_host,
+            "Content-Type": "application/json"
+        }
+
+        params = {
+            "query": query,
+            "search_type": "Top"
+        }
+
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            raise RuntimeError(f"Error connecting to RapidAPI Twitter endpoint: {e}")
+
+        try:
+            json_data = response.json()
+        except ValueError:
+            raise RuntimeError("The API response is not valid JSON.")
+
+        if json_data.get("status") != "ok":
+            raise RuntimeError("The API response status is not OK.")
+
+        tweets = json_data.get("timeline")
+
+        if not tweets or not isinstance(tweets, list):
+            raise RuntimeError("The API returned no tweets.")
+
+        rows = []
+        for tweet in tweets[:max_results]:
+            if tweet.get("type") != "tweet":
+                continue
+
+            rows.append({
+                "tweet_id": tweet.get("tweet_id"),
+                "user_name": tweet.get("screen_name"),
+                "date": tweet.get("created_at"),
+                "text": tweet.get("text"),
+                "lang": tweet.get("lang"),
+                "favorites": tweet.get("favorites"),
+                "retweets": tweet.get("retweets"),
+                "replies": tweet.get("replies"),
+                "views": tweet.get("views")
+            })
+
+        df = pd.DataFrame(rows)
+
+        if df.empty:
+            raise RuntimeError("No valid tweet rows were extracted from the API response.")
+
+        output_dir = os.path.dirname(output_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        df.to_csv(output_file, index=False, encoding="utf-8")
+
+        self.data = df
+        self.source_file = output_file
+
+        return self.data

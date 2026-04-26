@@ -1,158 +1,80 @@
-# 📊 Análisis de Sentimiento y Tendencias en Redes Sociales
+# 📊 Análisis de Sentimiento y Tendencias en Redes Sociales (U4)
 
-Proyecto desarrollado como parte de la asignatura **Busqueda y Análisis de la Información**.
+Proyecto desarrollado como parte de la asignatura **Búsqueda y Análisis de la Información**.
 
-Este proyecto tiene como objetivo construir un pipeline de análisis de datos textuales procedentes de redes sociales, centrándose en la extracción, limpieza y análisis de información relevante como hashtags.
-
----
-
-## 🚀 Fase actual: U2 - Extracción y Tratamiento de Datos
-
-En esta primera entrega se ha implementado la fase inicial del proyecto, que incluye:
-
-- Extracción de datos desde un dataset de tweets
-- Limpieza y normalización del texto
-- Extracción de hashtags
-- Análisis de frecuencia de hashtags
-- Visualización mediante WordCloud
+En esta fase se amplía el pipeline desarrollado en la Unidad 2, incorporando:
+- integración con APIs externas (Twitter vía RapidAPI)
+- técnicas avanzadas de análisis de texto (NLP)
 
 ---
 
-## 📁 Dataset
+## 🚀 Fase actual: U4 - APIs y Análisis Avanzado
 
-Se ha utilizado el dataset:
-
-- **Bitcoin Tweets Dataset**
-- Fuente: https://www.kaggle.com/datasets/kaushiksuresh147/bitcoin-tweets/data?select=Bitcoin_tweets_dataset_2.csv
-
-El dataset contiene tweets relacionados con Bitcoin, incluyendo información como:
-- texto del tweet
-- usuario
-- fecha
+En esta entrega se extiende la clase `DataExtractor` para trabajar con datos más reales desde una API externa y aplicar técnicas avanzadas de análisis textual.
 
 ---
 
-## ⚙️ Funcionalidades implementadas
+# 🔌 1. Integración con API de Twitter de RapidAPI
 
-Se ha desarrollado la clase `DataExtractor`, que encapsula todo el pipeline:
+## 🧩 Descripción
 
-### 🔹 Carga de datos
-- Lectura de archivos CSV
-- Manejo de datasets grandes
+Se ha implementado el método `load_data_api()`, que permite conectarse a la API de Twitter a través de RapidAPI para extraer tweets a partir de una consulta específica.
 
-### 🔹 Exportación de resultados
-
-El proyecto genera automáticamente archivos CSV en la carpeta `output/`:
-
-- `cleaned_dataset.csv`: dataset limpio
-- `hashtags_overall.csv`: frecuencia global de hashtags
-- `hashtags_by_user.csv`: frecuencia por usuario
-- `hashtags_by_date.csv`: evolución temporal
-
-Esto permite analizar los resultados sin necesidad de ejecutar el código.
-
-### 🔹 Limpieza de texto
-Se aplican expresiones regulares para:
-- eliminar URLs
-- eliminar menciones (@user)
-- eliminar caracteres especiales
-- normalizar a minúsculas
-- eliminar espacios redundantes
-- conservar hashtags
-
-### 🔹 Extracción de hashtags
-- Uso de regex (`#\w+`)
-- Conversión de texto a estructura de datos (listas)
-
-### 🔹 Análisis de datos
-Se realiza análisis de frecuencia en tres niveles:
-
-- **Global (`overall`)**
-- **Por usuario (`by_user`)**
-- **Por fecha (`by_date`)**
-
-Se utilizan operaciones de pandas como:
-- `apply`
-- `explode`
-- `groupby`
-
-### 🔹 Visualización
-- Generación de WordCloud de hashtags más frecuentes
-- Visualización interactiva mediante Streamlit
+Este método amplía el pipeline original permitiendo trabajar no solo con datasets estáticos, sino también con datos dinámicos.
 
 ---
 
-## 🛠 Tecnologías utilizadas
+## ⚙️ Funcionamiento
 
-- Python 3
-- Pandas
-- Regex (re)
-- Matplotlib
-- WordCloud
-- Streamlit
+El método realiza los siguientes pasos:
+
+1. **Conexión a la API**
+   - Se utiliza la librería `requests` para realizar una petición HTTP GET
+   - La API utilizada es `twitter-api45` a través de RapidAPI
+
+2. **Parámetros de búsqueda**
+   - `query`: palabra clave o tema a buscar
+   - `max_results`: número máximo de tweets a recuperar
+
+3. **Autenticación segura**
+   - La clave de la API se gestiona mediante variables de entorno (`RAPIDAPI_KEY`)
+   - No se incluye información sensible en el código
+
+4. **Validación de la respuesta**
+   - Se comprueba el código de estado HTTP
+   - Se valida que la respuesta JSON tenga estado `"ok"`
+   - Se verifica la existencia de datos en la respuesta
+
+5. **Transformación de datos**
+   - Se extraen los campos relevantes de cada tweet:
+     - `tweet_id`
+     - `user_name`
+     - `date`
+     - `text`
+     - métricas (likes, retweets, etc.)
+   - Se estructura la información en un `DataFrame`
+
+6. **Filtrado temporal**
+   - Conversión de la fecha a formato datetime
+   - Aplicación opcional de filtros por rango de fechas
+
+7. **Almacenamiento**
+   - Los datos se almacenan en:
+     - `self.data` para uso en el pipeline
+     - un archivo CSV en UTF-8 para reutilización posterior
 
 ---
 
-## ▶️ Cómo ejecutar
+## 🛠 Uso del método
 
-1. Clonar el repositorio:
-```bash
-git clone <repo-url>
+```python
+extractor = DataExtractor()
+
+df_api = extractor.load_data_api(
+    query="bitcoin",
+    max_results=20,
+    output_file="data/tweets_from_api.csv"
+)
+
+df_api.head()
 ```
-
-2.1 Instalar dependencias:
-```bash
-pip install pandas matplotlib wordcloud streamlit
-```
-2.2 Reproducibilidad:
-Para facilitar la ejecución del proyecto en otros entornos, se incluye un archivo `requirements.txt` con todas las dependencias necesarias.
-```bash
-pip install -r requirements.txt
-```
-
-3. Ejecutar el notebook (opcional):
-- Abrir el archivo `.ipynb`
-- Ejecutar las celdas en orden
-
-4. Ejecutar el dashboard con Streamlit:
-```bash
-streamlit run app-streamlit.py
-```
-
----
-
-## 📊 Resultados
-
-Se obtiene:
-
-- ranking de hashtags más utilizados
-- análisis de uso por usuario
-- evolución temporal de hashtags
-- visualización mediante WordCloud y dashboard interactivo
-
----
-
-## 🧠 Conclusiones
-
-Durante el análisis se observa que:
-
-- ciertos hashtags aparecen con alta frecuencia
-- algunos usuarios concentran gran parte de las menciones (esto podría indicar actividad automatizada (bots))
-
----
-
-## 🔜 Próximos pasos
-
-En futuras entregas se ampliará el proyecto con:
-
-- análisis de sentimiento
-- modelos de NLP
-- clasificación de texto
-- visualización avanzada (dashboard)
-
----
-
-## 👨‍💻 Autor
-
-Víctor Sánchez Grande
-

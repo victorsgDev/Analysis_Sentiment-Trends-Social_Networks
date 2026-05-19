@@ -242,10 +242,20 @@ class DataExtractor:
             encoding="utf-8"
         )
 
-    def load_data_api(self, query: str, max_results: int = 100, output_file: str = "data/tweets_from_api.csv") -> pd.DataFrame:
+    def load_data_api(
+            self,
+            query: str,
+            api_calls: int = 1,
+            output_file: str = "data/tweets_from_api.csv"
+    ) -> pd.DataFrame:
         """
-        Conecta con la API de Twitter a través de RapidAPI, extrae tweets
-        y guarda una copia local en CSV.
+        Conecta con la API de Twitter a través de RapidAPI, extrae tweets usando paginación
+        mediante next_cursor y guarda una copia local en CSV.
+
+        Parámetros:
+        - query: palabra clave o hashtag a buscar.
+        - api_calls: número de llamadas/páginas que se quieren solicitar a la API.
+        - output_file: ruta del archivo CSV donde se guardarán los tweets extraídos.
         """
 
         api_key = os.getenv("RAPIDAPI_KEY")
@@ -264,51 +274,73 @@ class DataExtractor:
             "Content-Type": "application/json"
         }
 
-        params = {
-            "query": query,
-            "search_type": "Top"
-        }
-
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=30)
-            response.raise_for_status()
-        except requests.RequestException as e:
-            raise RuntimeError(f"Error connecting to RapidAPI Twitter endpoint: {e}")
-
-        try:
-            json_data = response.json()
-        except ValueError:
-            raise RuntimeError("The API response is not valid JSON.")
-
-        if json_data.get("status") != "ok":
-            raise RuntimeError("The API response status is not OK.")
-
-        tweets = json_data.get("timeline")
-
-        if not tweets or not isinstance(tweets, list):
-            raise RuntimeError("The API returned no tweets.")
-
         rows = []
-        for tweet in tweets[:max_results]:
-            if tweet.get("type") != "tweet":
-                continue
+        cursor = None
 
-            rows.append({
-                "tweet_id": tweet.get("tweet_id"),
-                "user_name": tweet.get("screen_name"),
-                "date": tweet.get("created_at"),
-                "text": tweet.get("text"),
-                "lang": tweet.get("lang"),
-                "favorites": tweet.get("favorites"),
-                "retweets": tweet.get("retweets"),
-                "replies": tweet.get("replies"),
-                "views": tweet.get("views")
-            })
+        for call_number in range(api_calls):
+            params = {
+                "query": query,
+                "search_type": "Top"
+            }
+
+            if cursor:
+                params["cursor"] = cursor
+
+            try:
+                response = requests.get(url, headers=headers, params=params)
+                response.raise_for_status()
+            except requests.RequestException as e:
+                raise RuntimeError(f"Error connecting to RapidAPI Twitter endpoint: {e}")
+
+            try:
+                json_data = response.json()
+            except ValueError:
+                raise RuntimeError("The API response is not valid JSON.")
+
+            if json_data.get("status") != "ok":
+                raise RuntimeError(f"The API response status is not OK. Response: {json_data}")
+
+            tweets = json_data.get("timeline")
+
+            if not tweets or not isinstance(tweets, list):
+                print(f"No tweets returned in API call {call_number + 1}. Stopping pagination.")
+                break
+
+            for tweet in tweets:
+                if tweet.get("type") != "tweet":
+                    continue
+
+                rows.append({
+                    "tweet_id": tweet.get("tweet_id"),
+                    "user_name": tweet.get("screen_name"),
+                    "date": tweet.get("created_at"),
+                    "text": tweet.get("text"),
+                    "lang": tweet.get("lang"),
+                    "favorites": tweet.get("favorites"),
+                    "retweets": tweet.get("retweets"),
+                    "replies": tweet.get("replies"),
+                    "views": tweet.get("views")
+                })
+
+            next_cursor = json_data.get("next_cursor")
+
+            print(
+                f"API call {call_number + 1}/{api_calls} completed. "
+                f"Tweets collected so far: {len(rows)}"
+            )
+
+            if not next_cursor:
+                print("No next_cursor returned. Stopping pagination.")
+                break
+
+            cursor = next_cursor
 
         df = pd.DataFrame(rows)
 
         if df.empty:
             raise RuntimeError("No valid tweet rows were extracted from the API response.")
+
+        df = df.drop_duplicates(subset=["tweet_id"])
 
         output_dir = os.path.dirname(output_file)
         if output_dir:

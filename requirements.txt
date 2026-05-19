@@ -7,3 +7,4 @@ spacytextblob
 gensim
 nltk
 pyLDAvis
+python-dotenv

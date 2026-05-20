@@ -9,3 +9,6 @@ nltk
 pyLDAvis
 python-dotenv
 networkx
+transformers
+accelerate
+torch

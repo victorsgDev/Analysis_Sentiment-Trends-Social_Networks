@@ -114,3 +114,76 @@ else:
     if st.button("Generar resumen"):
         summary = extractor.parse_and_summarize(summary_ratio=summary_ratio)
         st.write(summary)
+
+# -----------------------
+# ANÁLISIS DE REDES SOCIALES - U6
+# -----------------------
+st.subheader("🕸️ Análisis de red de usuarios")
+
+if not is_api_data:
+    st.info("Disponible solo para datos de la API (U6)")
+else:
+    if st.button("Construir y analizar red"):
+        graph = extractor.build_interaction_graph()
+        network_results = extractor.analyze_network()
+
+        summary = network_results["summary"]
+        metrics = network_results["metrics"]
+        communities = network_results["communities"]
+
+        st.write(f"Número de nodos: {summary['num_nodes']}")
+        st.write(f"Número de aristas: {summary['num_edges']}")
+        st.write(f"Densidad de la red: {summary['density']:.6f}")
+        st.write(f"Número de comunidades: {summary['num_communities']}")
+
+        st.subheader("🏆 Top usuarios por centralidad")
+        st.dataframe(metrics.head(top_n))
+
+        st.subheader("👥 Comunidades principales")
+
+        top_communities = sorted(
+            communities,
+            key=len,
+            reverse=True
+        )[:5]
+
+        for i, community in enumerate(top_communities, start=1):
+            st.write(f"Comunidad {i} - {len(community)} usuarios")
+            st.write(list(community)[:10])
+
+# -----------------------
+# PROMPT PARA LLM - U6
+# -----------------------
+st.subheader("🤖 Prompt para análisis con LLM")
+
+if not is_api_data:
+    st.info("Disponible solo para datos de la API (U6)")
+else:
+    if st.button("Generar prompt para LLM"):
+        network_results = extractor.analyze_network()
+        prompt = extractor.generate_network_insights_prompt(network_results)
+
+        st.text_area(
+            "Prompt generado",
+            prompt,
+            height=400
+        )
+
+st.subheader("🧠 Análisis interpretativo con LLM local")
+
+if not is_api_data:
+    st.info("Disponible solo para datos de la API (U6)")
+else:
+    st.warning("La ejecución del LLM local puede tardar bastante y consumir muchos recursos.")
+
+    if st.button("Ejecutar LLM local"):
+        network_results = extractor.analyze_network()
+
+        with st.spinner("Generando análisis con el modelo local..."):
+            llm_analysis = extractor.analyze_network_with_llm(
+                network_results=network_results,
+                model_name="google/gemma-4-E2B-it",
+                max_new_tokens=500
+            )
+
+        st.write(llm_analysis)

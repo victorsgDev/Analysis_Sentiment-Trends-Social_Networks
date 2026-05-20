@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 
 import requests
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import spacy
@@ -40,7 +41,8 @@ class DataExtractor:
             raise FileNotFoundError(f"File {self.source_file} not found.")
 
         if self.source_file.endswith(".csv"):
-            reader = pd.read_csv(self.source_file, encoding="utf-8", engine="python", chunksize=self.chunksize, on_bad_lines='skip')
+            reader = pd.read_csv(self.source_file, encoding="utf-8", engine="python", chunksize=self.chunksize,
+                                 on_bad_lines='skip')
             self.data = pd.concat(reader, ignore_index=True)
         elif self.source_file.endswith(".json"):
             self.data = pd.read_json(self.source_file, encoding="utf-8", lines=True)
@@ -168,7 +170,8 @@ class DataExtractor:
 
         return {'overall': overall, 'by_user': by_user, 'by_date': by_date, 'keywords_overall': keywords_overall}
 
-    def generate_hashtag_wordcloud(self, overall_df: pd.DataFrame = None, max_words: int = 100, figsize: tuple = (10, 6)) -> None:
+    def generate_hashtag_wordcloud(self, overall_df: pd.DataFrame = None, max_words: int = 100,
+                                   figsize: tuple = (10, 6)) -> None:
         """
         Genera una wordcloud de hashtags.
         """
@@ -485,7 +488,6 @@ class DataExtractor:
             "coherence": coherence_score,
             "perplexity": perplexity
         }
-
 
     def analyze_sentiment(self, model: str = "en_core_web_sm") -> pd.DataFrame:
         """
@@ -872,3 +874,147 @@ class DataExtractor:
         plt.title("Grafo de interacciones entre usuarios")
         plt.axis("off")
         plt.show()
+
+    def generate_network_insights_prompt(self, network_results: dict = None) -> str:
+        """
+        Genera un prompt estructurado para que un LLM interprete los resultados
+        del análisis de red.
+        """
+
+        if network_results is None:
+            network_results = self.analyze_network()
+
+        summary = network_results["summary"]
+        metrics = network_results["metrics"]
+        communities = network_results["communities"]
+
+        top_users = metrics.head(3)
+
+        top_users_text = "\n".join(
+            [
+                f"- {row['user']}: degree={row['degree']}, "
+                f"in_degree={row['in_degree']}, out_degree={row['out_degree']}, "
+                f"degree_centrality={row['degree_centrality']:.4f}"
+                for _, row in top_users.iterrows()
+            ]
+        )
+
+        top_communities = sorted(
+            communities,
+            key=len,
+            reverse=True
+        )[:5]
+
+        communities_text = "\n".join(
+            [
+                f"- Comunidad {i + 1}: {len(community)} usuarios. "
+                f"Ejemplos: {', '.join(list(community)[:10])}"
+                for i, community in enumerate(top_communities)
+            ]
+        )
+
+        hashtag_analysis = self.analytics_hashtags_extended()
+
+        if hashtag_analysis["overall"].empty:
+            top_hashtag = "No se han encontrado hashtags explícitos en el dataset."
+        else:
+            top_hashtag = hashtag_analysis["overall"].iloc[0]["hashtag"]
+
+        if hashtag_analysis["keywords_overall"].empty:
+            top_keywords = "No se han encontrado keywords relevantes."
+        else:
+            top_keywords = ", ".join(
+                hashtag_analysis["keywords_overall"].head(10)["keyword"].tolist()
+            )
+
+        prompt = f"""
+    Eres un analista experto en redes sociales, análisis de grafos y comportamiento de usuarios.
+
+    Analiza los siguientes resultados obtenidos a partir de tweets sobre una temática concreta.
+
+    DATOS GENERALES DE LA RED:
+    - Número de nodos: {summary["num_nodes"]}
+    - Número de aristas: {summary["num_edges"]}
+    - Densidad de la red: {summary["density"]:.6f}
+    - Número de comunidades detectadas: {summary["num_communities"]}
+
+    TOP 3 USUARIOS MÁS CENTRALES:
+    {top_users_text}
+
+    COMUNIDADES PRINCIPALES:
+    {communities_text}
+
+    HASHTAG MÁS FRECUENTE:
+    {top_hashtag}
+
+    KEYWORDS MÁS FRECUENTES:
+    {top_keywords}
+
+    TAREA:
+    Redacta un análisis claro en español que incluya:
+    1. Interpretación general de la estructura de la red.
+    2. Significado de los usuarios más centrales.
+    3. Interpretación de las comunidades detectadas.
+    4. Relación entre keywords/hashtags y comportamiento de la red.
+    5. Conclusiones finales sobre la dinámica social observada.
+
+    Responde con un estilo académico, claro y breve.
+    """
+        return prompt.strip()
+
+    def analyze_network_with_llm(
+            self,
+            network_results: dict = None,
+            model_name: str = "google/gemma-4-E2B-it",
+            max_new_tokens: int = 500
+    ) -> str:
+        """
+        Utiliza un modelo LLM local mediante transformers para interpretar
+        los resultados del análisis de red.
+        """
+
+        import torch
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+
+        prompt = self.generate_network_insights_prompt(network_results)
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            device_map="auto",
+            torch_dtype="auto"
+        )
+
+        messages = [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+
+        inputs = tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_tensors="pt",
+            return_dict=True
+        ).to(model.device)
+
+        output_ids = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            pad_token_id=tokenizer.eos_token_id
+        )
+
+        prompt_length = inputs["input_ids"].shape[-1]
+
+        generated_ids = output_ids[0][prompt_length:]
+
+        llm_analysis = tokenizer.decode(
+            generated_ids,
+            skip_special_tokens=True
+        )
+
+        return llm_analysis.strip()

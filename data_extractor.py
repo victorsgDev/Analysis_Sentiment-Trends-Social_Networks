@@ -13,6 +13,7 @@ import spacy
 from collections import Counter
 import math
 from spacytextblob.spacytextblob import SpacyTextBlob
+import networkx as nx
 
 
 class DataExtractor:
@@ -100,6 +101,17 @@ class DataExtractor:
         keywords = [w for w in words if w not in stopwords and not w.startswith("#")]
 
         return keywords
+
+    @staticmethod
+    def extract_mentions(text: str) -> list:
+        """
+        Extrae menciones de usuario dentro de un texto.
+        Ejemplo: '@Tesla @elonmusk' -> ['Tesla', 'elonmusk']
+        """
+        if not isinstance(text, str):
+            return []
+
+        return re.findall(r'@(\w+)', text)
 
     def analytics_hashtags_extended(self) -> dict:
         """
@@ -711,3 +723,152 @@ class DataExtractor:
 
         with open(f"{output_dir}/summary.txt", "w", encoding="utf-8") as f:
             f.write(summary)
+
+    def build_interaction_graph(self) -> nx.DiGraph:
+        """
+        Construye un grafo dirigido de interacciones entre usuarios.
+
+        Cada nodo representa un usuario.
+        Cada arista representa una mención:
+            user_name -> usuario_mencionado
+        """
+
+        if self.data is None:
+            raise ValueError("Data not loaded. Please load data first.")
+
+        required_columns = {"user_name", "text"}
+        if not required_columns.issubset(self.data.columns):
+            raise ValueError("Data must contain 'user_name' and 'text' columns.")
+
+        graph = nx.DiGraph()
+
+        for _, row in self.data.iterrows():
+            source_user = row.get("user_name")
+            text = row.get("text", "")
+
+            if not isinstance(source_user, str) or not source_user.strip():
+                continue
+
+            mentions = self.extract_mentions(text)
+
+            graph.add_node(source_user)
+
+            for mentioned_user in mentions:
+                if mentioned_user and mentioned_user != source_user:
+                    if graph.has_edge(source_user, mentioned_user):
+                        graph[source_user][mentioned_user]["weight"] += 1
+                    else:
+                        graph.add_edge(source_user, mentioned_user, weight=1)
+
+        self.interaction_graph = graph
+
+        return graph
+
+    def analyze_network(self) -> dict:
+        """
+        Calcula métricas básicas del grafo de interacción.
+        """
+
+        if not hasattr(self, "interaction_graph"):
+            self.build_interaction_graph()
+
+        graph = self.interaction_graph
+
+        if graph.number_of_nodes() == 0:
+            raise ValueError("The graph has no nodes.")
+
+        degree_centrality = nx.degree_centrality(graph)
+        in_degree_centrality = nx.in_degree_centrality(graph)
+        out_degree_centrality = nx.out_degree_centrality(graph)
+
+        try:
+            betweenness_centrality = nx.betweenness_centrality(graph)
+        except Exception:
+            betweenness_centrality = {}
+
+        metrics_df = pd.DataFrame({
+            "user": list(graph.nodes()),
+            "degree": [graph.degree(node) for node in graph.nodes()],
+            "in_degree": [graph.in_degree(node) for node in graph.nodes()],
+            "out_degree": [graph.out_degree(node) for node in graph.nodes()],
+            "degree_centrality": [degree_centrality.get(node, 0) for node in graph.nodes()],
+            "in_degree_centrality": [in_degree_centrality.get(node, 0) for node in graph.nodes()],
+            "out_degree_centrality": [out_degree_centrality.get(node, 0) for node in graph.nodes()],
+            "betweenness_centrality": [betweenness_centrality.get(node, 0) for node in graph.nodes()]
+        })
+
+        metrics_df = metrics_df.sort_values(
+            by="degree_centrality",
+            ascending=False
+        )
+
+        communities = list(nx.weakly_connected_components(graph))
+
+        hashtags_results = self.analytics_hashtags_extended()
+
+        top_hashtag = None
+
+        if not hashtags_results["overall"].empty:
+            top_hashtag = hashtags_results["overall"].iloc[0]["hashtag"]
+
+        summary = {
+            "num_nodes": graph.number_of_nodes(),
+            "num_edges": graph.number_of_edges(),
+            "density": nx.density(graph),
+            "num_communities": len(communities),
+            "top_3_central_users": metrics_df.head(3),
+            "top_hashtag": top_hashtag
+        }
+
+        return {
+            "graph": graph,
+            "metrics": metrics_df,
+            "communities": communities,
+            "summary": summary
+        }
+
+    def visualize_network(self, figsize: tuple = (12, 8), node_size: int = 800) -> None:
+        """
+        Visualiza el grafo de interacciones.
+        """
+
+        if not hasattr(self, "interaction_graph"):
+            self.build_interaction_graph()
+
+        graph = self.interaction_graph
+
+        if graph.number_of_nodes() == 0:
+            raise ValueError("The graph has no nodes.")
+
+        plt.figure(figsize=figsize)
+
+        pos = nx.spring_layout(graph, seed=42)
+
+        node_sizes = [
+            max(node_size * graph.degree(node), node_size)
+            for node in graph.nodes()
+        ]
+
+        nx.draw_networkx_nodes(
+            graph,
+            pos,
+            node_size=node_sizes,
+            alpha=0.7
+        )
+
+        nx.draw_networkx_edges(
+            graph,
+            pos,
+            arrows=True,
+            alpha=0.4
+        )
+
+        nx.draw_networkx_labels(
+            graph,
+            pos,
+            font_size=9
+        )
+
+        plt.title("Grafo de interacciones entre usuarios")
+        plt.axis("off")
+        plt.show()

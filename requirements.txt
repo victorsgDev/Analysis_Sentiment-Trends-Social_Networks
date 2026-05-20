@@ -8,3 +8,4 @@ gensim
 nltk
 pyLDAvis
 python-dotenv
+networkx

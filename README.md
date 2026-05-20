@@ -1,347 +1,412 @@
-# 📊 Análisis de Sentimiento y Tendencias en Redes Sociales (U4)
+# 🕸️ U6 - Análisis de Redes Sociales e Integración con LLM
 
-Proyecto desarrollado como parte de la asignatura **Búsqueda y Análisis de la Información**.
+En esta fase se amplía el pipeline desarrollado en las unidades anteriores incorporando técnicas de **análisis de redes sociales** mediante `NetworkX` y la integración con un **modelo LLM local** para generar una interpretación automática de los resultados obtenidos.
 
-En esta fase se amplía el pipeline desarrollado en la Unidad 2, incorporando:
-- integración con APIs externas (Twitter vía RapidAPI)
-- técnicas avanzadas de análisis de texto (NLP)
+La práctica parte de los tweets extraídos mediante la API de Twitter/RapidAPI y reutiliza el dataset generado en fases anteriores para construir una red de interacciones entre usuarios.
 
 ---
 
-## 🚀 Fase actual: U4 - APIs y Análisis Avanzado
+## 🧩 Objetivos de esta fase
 
-En esta entrega se extiende la clase `DataExtractor` para trabajar con datos más reales desde una API externa y aplicar técnicas avanzadas de análisis textual.
+Los principales objetivos de esta entrega son:
 
----
-
-# 🔌 1. Integración con API de Twitter de RapidAPI
-
-## 🧩 Descripción
-
-Se ha implementado el método `load_data_api()`, que permite conectarse a la API de Twitter a través de RapidAPI para extraer tweets a partir de una consulta específica.
-
-Este método amplía el pipeline original permitiendo trabajar no solo con datasets estáticos, sino también con datos dinámicos.
+- Construir un grafo de interacciones entre usuarios a partir de menciones en tweets.
+- Calcular métricas de red relevantes mediante `NetworkX`.
+- Detectar comunidades dentro del grafo.
+- Extraer información clave de la red, como usuarios más centrales y términos frecuentes.
+- Generar un prompt estructurado con los resultados del análisis.
+- Ejecutar un modelo LLM local para obtener una interpretación en lenguaje natural del comportamiento de la red.
+- Integrar los resultados en el pipeline existente y en la visualización con Streamlit.
 
 ---
 
-## ⚙️ Funcionamiento
+## 🔌 1. Dataset utilizado
 
-El método realiza los siguientes pasos:
+El análisis se realiza sobre los tweets obtenidos mediante el método `load_data_api()`.
 
-1. **Conexión a la API**
-   - Se utiliza la librería `requests` para realizar una petición HTTP GET
-   - La API utilizada es `twitter-api45` a través de RapidAPI
+Este método permite recuperar datos desde la API `twitter-api45` de RapidAPI, utilizando paginación mediante el parámetro `cursor`.
 
-2. **Parámetros de búsqueda**
-   - `query`: palabra clave o tema a buscar
-   - `max_results`: número máximo de tweets a recuperar
+La API limita el número de tweets devueltos por petición, por lo que se ha implementado un sistema de múltiples llamadas usando el valor `next_cursor` devuelto por la respuesta.
 
-3. **Autenticación segura**
-   - La clave de la API se gestiona mediante variables de entorno (`RAPIDAPI_KEY`)
-   - No se incluye información sensible en el código
+Ejemplo de uso:
 
-4. **Validación de la respuesta**
-   - Se comprueba el código de estado HTTP
-   - Se valida que la respuesta JSON tenga estado `"ok"`
-   - Se verifica la existencia de datos en la respuesta
-
-5. **Transformación de datos**
-   - Se extraen los campos relevantes de cada tweet:
-     - `tweet_id`
-     - `user_name`
-     - `date`
-     - `text`
-     - métricas (likes, retweets, etc.)
-   - Se estructura la información en un `DataFrame`
-
-6. **Filtrado temporal**
-   - Conversión de la fecha a formato datetime
-   - Aplicación opcional de filtros por rango de fechas
-
-7. **Almacenamiento**
-   - Los datos se almacenan en:
-     - `self.data` para uso en el pipeline
-     - un archivo CSV en UTF-8 para reutilización posterior
-
----
-
-## 🛠 Uso del método
-
-```python
+~~~python
 extractor = DataExtractor()
 
 df_api = extractor.load_data_api(
     query="bitcoin",
-    max_results=20,
+    api_calls=10,
     output_file="data/tweets_from_api.csv"
 )
 
 df_api.head()
-```
+~~~
+
+De esta forma, en lugar de depender únicamente de una respuesta limitada a unos pocos tweets, el pipeline puede recuperar varias páginas de resultados y construir un dataset más representativo.
 
 ---
 
----
+## 🕸️ 2. Análisis de Redes Sociales con NetworkX
 
-# 🧠 2. Modelado y Análisis Avanzado
+### Descripción
 
-En esta fase se aplican distintas técnicas de Procesamiento de Lenguaje Natural (NLP) sobre los tweets obtenidos.
+Se ha implementado un análisis de red a partir de las menciones presentes en los tweets.
 
-Estas técnicas permiten transformar texto no estructurado en información analizable.
+Cada nodo del grafo representa un usuario y cada arista representa una interacción de mención:
 
----
+~~~text
+autor del tweet  --->  usuario mencionado
+~~~
 
-## 🧩 2.1 Modelado de tópicos (LDA)
-
-### 🔍 Descripción
-
-Se ha aplicado **Latent Dirichlet Allocation (LDA)** utilizando la librería `gensim` para descubrir los principales temas presentes en los tweets.
-
-### ⚙️ Metodología
-
-- Tokenización de textos (`simple_preprocess`)
-- Eliminación de stopwords
-- Creación de:
-  - diccionario (`Dictionary`)
-  - corpus en formato Bag of Words
-- Entrenamiento del modelo LDA:
-  - número de tópicos configurable
-  - número de iteraciones (`passes`)
-
-### 📊 Resultados
-
-Se obtienen:
-
-- palabras clave por tópico
-- métricas de evaluación:
-  - **Coherencia**
-  - **Perplexity**
-
-Además, se utiliza `pyLDAvis` para visualizar:
-
-- distancia entre tópicos
-- términos más relevantes
-
-### 🧠 Interpretación
-
-Los tópicos identificados reflejan:
-
-- comportamiento del mercado cripto
-- comparativas con activos tradicionales
-- noticias relevantes del sector
-- dinámica de precios de Bitcoin
+Por ejemplo, si el usuario `A` escribe un tweet mencionando a `@B`, se genera una arista dirigida desde `A` hacia `B`.
 
 ---
 
-## 😊 2.2 Análisis de sentimiento
+### Metodología
 
-### 🔍 Descripción
+El proceso seguido es:
 
-Se realiza análisis de sentimiento utilizando **spaCy + spacytextblob**.
-
-### ⚙️ Metodología
-
-- Procesamiento de cada tweet con spaCy
-- Obtención de:
-  - **polaridad** (-1 a 1)
-  - **subjetividad** (0 a 1)
-- Clasificación en:
-  - positivo
-  - negativo
-  - neutro
-
-### 📊 Resultados
-
-Se obtiene:
-
-- dataset enriquecido con métricas de sentimiento
-- distribución de sentimientos mediante gráfico
-
-### 🧠 Interpretación
-
-Los resultados muestran que:
-
-- predomina el sentimiento **neutral/positivo**
-- los tweets suelen ser informativos o analíticos
-- hay baja presencia de opiniones extremadamente negativas
+1. Extraer menciones de cada tweet usando expresiones regulares.
+2. Construir un grafo dirigido (`DiGraph`) con `NetworkX`.
+3. Añadir nodos para los autores de los tweets.
+4. Añadir aristas hacia los usuarios mencionados.
+5. Incrementar el peso de la arista si una interacción se repite.
+6. Calcular métricas de red.
+7. Detectar comunidades.
+8. Visualizar el grafo completo y las principales comunidades.
 
 ---
 
-## 🔍 2.3 Parsing sintáctico
+### Métodos implementados
 
-### 🔍 Descripción
+Se han añadido métodos específicos a la clase `DataExtractor`:
 
-Se utiliza **spaCy** para analizar la estructura gramatical de los textos.
-
-### ⚙️ Técnicas aplicadas
-
-- extracción de relaciones **Sujeto-Verbo-Objeto (SVO)**
-- conteo de categorías gramaticales (POS):
-  - sustantivos
-  - verbos
-  - adjetivos
-  - adverbios
-- frecuencia de verbos
-
-### 📊 Resultados
-
-Se genera un dataset con:
-
-- sujeto, verbo y objeto por frase
-- estadísticas lingüísticas
-- frecuencia de acciones (verbos)
-
-Además, se visualizan árboles sintácticos con `displacy`.
-
-### 🧠 Interpretación
-
-Este análisis permite:
-
-- entender cómo se estructuran los mensajes
-- identificar acciones relevantes (ej: “buy”, “sell”, “rise”)
-- analizar patrones lingüísticos en redes sociales
+- `extract_mentions()`: extrae menciones de usuario a partir del texto.
+- `build_interaction_graph()`: construye el grafo dirigido de interacciones.
+- `analyze_network()`: calcula métricas de red y comunidades.
+- `visualize_network()`: genera una visualización del grafo completo.
+- `generate_network_insights_prompt()`: genera el prompt para el LLM.
+- `analyze_network_with_llm()`: ejecuta el análisis interpretativo con un modelo LLM local.
 
 ---
 
-## 📝 2.4 Resumen extractivo
+## 📊 3. Métricas de red calculadas
 
-### 🔍 Descripción
+El método `analyze_network()` calcula diferentes métricas para estudiar el papel de cada usuario dentro de la red.
 
-Se implementa un método de resumen extractivo que selecciona las frases más relevantes del corpus.
+Las métricas principales son:
 
-### ⚙️ Metodología
+- **degree**: número total de conexiones de un nodo.
+- **in_degree**: número de menciones recibidas.
+- **out_degree**: número de menciones realizadas.
+- **degree_centrality**: centralidad de grado.
+- **in_degree_centrality**: centralidad basada en menciones recibidas.
+- **out_degree_centrality**: centralidad basada en menciones realizadas.
+- **betweenness_centrality**: mide si un nodo actúa como puente entre distintas partes de la red.
 
-- tokenización de frases
-- cálculo de frecuencia de palabras
-- puntuación de frases en función de su relevancia
-- selección de las frases más representativas
+Ejemplo de ejecución:
 
-### 📊 Resultados
+~~~python
+network_results = extractor.analyze_network()
 
-Se obtiene un resumen que condensa la información clave de los tweets.
-
-### 🧠 Interpretación
-
-El resumen permite:
-
-- entender rápidamente el contenido del dataset
-- identificar temas principales sin leer todos los tweets
-- mejorar la eficiencia del análisis
+network_results["metrics"].head(10)
+~~~
 
 ---
 
-# 📊 3. Resultados del análisis
+## 👥 4. Detección de comunidades
 
-## 🔹 Hashtags
+Para detectar comunidades se utilizan los componentes débilmente conectados del grafo.
 
-El análisis de hashtags no produce resultados en este dataset.
+Esto permite identificar grupos de usuarios conectados entre sí por menciones, aunque la dirección de la relación no sea estrictamente considerada para formar la comunidad.
 
-Esto se debe a que los tweets obtenidos desde la API no contienen hashtags explícitos en el texto ni en los metadatos.
+Ejemplo:
 
-No se trata de un error del pipeline, sino de una característica del dataset.
+~~~python
+communities = network_results["communities"]
 
----
+top_communities = sorted(
+    communities,
+    key=len,
+    reverse=True
+)[:5]
 
-## 🔹 Keywords
-
-Se utilizan como alternativa a los hashtags.
-
-Permiten identificar términos frecuentes como:
-
-- bitcoin
-- crypto
-- market
-- price
-
----
-
-## 🔹 Tópicos
-
-Los tópicos obtenidos reflejan:
-
-- ciclos de mercado
-- activos financieros alternativos
-- eventos relevantes del ecosistema cripto
+for i, community in enumerate(top_communities):
+    print(f"Comunidad {i+1}:")
+    print(list(community)[:10])
+    print()
+~~~
 
 ---
 
-## 🔹 Sentimiento
+## 🧭 5. Visualización del grafo y comunidades
 
-Distribución:
+Además del grafo completo, se visualizan las comunidades principales de forma independiente.
 
-- mayoritariamente neutral
-- presencia moderada de sentimiento positivo
+Esto permite interpretar mejor la estructura del grafo, ya que una red completa puede ser difícil de leer cuando contiene muchos nodos.
+
+Ejemplo de visualización por comunidades:
+
+~~~python
+import matplotlib.pyplot as plt
+import networkx as nx
+
+graph = network_results["graph"]
+communities = network_results["communities"]
+
+top_communities = sorted(
+    communities,
+    key=len,
+    reverse=True
+)[:5]
+
+for i, community in enumerate(top_communities, start=1):
+    subgraph = graph.subgraph(community)
+
+    plt.figure(figsize=(10, 6))
+
+    pos = nx.spring_layout(subgraph, seed=42)
+
+    node_sizes = [
+        max(500 * subgraph.degree(node), 500)
+        for node in subgraph.nodes()
+    ]
+
+    nx.draw_networkx_nodes(
+        subgraph,
+        pos,
+        node_size=node_sizes,
+        alpha=0.7
+    )
+
+    nx.draw_networkx_edges(
+        subgraph,
+        pos,
+        arrows=True,
+        alpha=0.4
+    )
+
+    nx.draw_networkx_labels(
+        subgraph,
+        pos,
+        font_size=9
+    )
+
+    plt.title(
+        f"Comunidad {i} - {subgraph.number_of_nodes()} nodos / {subgraph.number_of_edges()} aristas"
+    )
+
+    plt.axis("off")
+    plt.show()
+~~~
 
 ---
 
-## 🔹 Parsing
+## 🏆 6. Información clave extraída
 
-Permite identificar:
+A partir del análisis de red se obtiene información relevante como:
 
-- estructura de los mensajes
-- acciones más frecuentes
-- patrones lingüísticos
+- número total de nodos,
+- número total de aristas,
+- densidad de la red,
+- número de comunidades detectadas,
+- top 3 usuarios con mayor centralidad,
+- hashtag más frecuente,
+- keywords más frecuentes.
+
+Ejemplo:
+
+~~~python
+network_results["summary"]
+~~~
+
+En caso de que el dataset no contenga hashtags explícitos, el sistema lo refleja correctamente y utiliza las keywords como alternativa para analizar los términos más relevantes del corpus.
 
 ---
 
-## 🔹 Resumen
+## 🤖 7. Generación de Prompt y Análisis con LLM Local
 
-Condensa el contenido del dataset en unas pocas frases clave.
+### Descripción
+
+La información obtenida del análisis de red se integra en un prompt estructurado que posteriormente se pasa a un modelo LLM local.
+
+El modelo utilizado es el indicado en el enunciado de la práctica:
+
+~~~text
+google/gemma-4-E2B-it
+~~~
+
+El objetivo del LLM es generar una interpretación en lenguaje natural sobre el comportamiento de la red.
 
 ---
 
-## 📦 Exportación de resultados
+### Información incluida en el prompt
 
-El proyecto genera automáticamente archivos en la carpeta `output/` que contienen todos los resultados del análisis:
+El prompt incorpora:
 
-- dataset limpio
-- análisis de hashtags y keywords
-- análisis de sentimiento
-- modelado de tópicos
-- parsing sintáctico
-- resumen del corpus
+- número de nodos,
+- número de aristas,
+- densidad de la red,
+- número de comunidades,
+- top 3 usuarios más centrales,
+- comunidades principales,
+- hashtag más frecuente,
+- keywords más frecuentes.
 
-Esto permite reproducir y analizar los resultados sin necesidad de ejecutar el código.
+Ejemplo de generación del prompt:
 
-# ▶️ 4. Reproducibilidad
+~~~python
+prompt = extractor.generate_network_insights_prompt(network_results)
 
-## ⚙️ Requisitos
+print(prompt)
+~~~
 
-Instalar dependencias:
+---
 
-```bash
-pip install -r requirements.txt
-```
+### Ejecución del modelo LLM local
 
-## 🔐 Variables de entorno
-Configurar la API key:
+El análisis interpretativo se genera mediante `transformers`:
 
-Windows PowerShell:
-```powershell
-setx RAPIDAPI_KEY "tu_clave_aqui"
-setx RAPIDAPI_HOST "twitter-api45.p.rapidapi.com"
-```
-## ▶️ Ejecución
-1. Ejecutar el notebook:
-```bash
-jupyter notebook
-```
-2. Ejecutar las celdas en orden para reproducir el análisis.
-3. (Opcional) Ejecutar Streamlit:
-```bash
+~~~python
+llm_analysis = extractor.analyze_network_with_llm(
+    network_results=network_results,
+    model_name="google/gemma-4-E2B-it",
+    max_new_tokens=500
+)
+
+print(llm_analysis)
+~~~
+
+---
+
+### Interpretación generada
+
+El modelo LLM recibe los resultados estructurados del análisis de red y genera una explicación sobre:
+
+- el nivel de fragmentación de la red,
+- la importancia de los usuarios centrales,
+- la distribución de comunidades,
+- la relación entre términos frecuentes y comportamiento social,
+- conclusiones generales sobre la dinámica observada.
+
+En los resultados obtenidos, el modelo destaca que la red presenta una estructura muy fragmentada, formada por muchas comunidades pequeñas, lo que sugiere que la conversación no se organiza alrededor de un único grupo central, sino en múltiples nichos de interacción.
+
+---
+
+## 📦 8. Exportación de resultados
+
+Para mejorar la reutilización de los resultados, se mantiene la exportación de datos procesados y análisis generados.
+
+Se recomienda almacenar en la carpeta `output/` archivos como:
+
+~~~text
+output/
+├── cleaned_dataset.csv
+├── hashtags_overall.csv
+├── keywords_overall.csv
+├── sentiment_analysis.csv
+├── topics.csv
+├── parsing_results.csv
+├── network_metrics.csv
+├── network_summary.csv
+├── network_top_3_users.csv
+├── llm_network_analysis.txt
+└── summary.txt
+~~~
+
+Esto permite revisar los resultados sin necesidad de ejecutar todo el pipeline desde cero.
+
+---
+
+## 🖥️ 9. Integración con Streamlit
+
+La aplicación Streamlit se amplía para incluir resultados de la Unidad 6.
+
+Además de las funcionalidades previas de hashtags, keywords, sentimiento, tópicos y resumen, se añaden:
+
+- análisis de red,
+- métricas generales del grafo,
+- top usuarios por centralidad,
+- comunidades principales,
+- generación de prompt para LLM,
+- ejecución opcional del análisis interpretativo con LLM local.
+
+Ejemplo de ejecución:
+
+~~~bash
 streamlit run app-streamlit.py
-```
+~~~
 
-## 🧠 Conclusiones
-En esta segunda fase se ha ampliado significativamente el pipeline inicial incorporando:
-- Integración con API externa
-- Técnicas avanzadas de NLP
-- Análisis estructural del lenguaje
+---
 
-Aunque el dataset de la API presenta limitaciones (como la ausencia de hashtags), se han aplicado técnicas alternativas que permiten extraer información relevante.
+## ▶️ 10. Reproducibilidad
 
-El proyecto demuestra la capacidad de transformar datos textuales no estructurados en conocimiento útil mediante técnicas modernas de análisis de datos.
+### Instalación de dependencias
 
-## 👨‍💻 Autor
+Para instalar las dependencias necesarias:
 
-Víctor Sánchez Grande
+~~~bash
+pip install -r requirements.txt
+~~~
+
+Además, para ejecutar el modelo LLM local, se necesitan las librerías de Hugging Face:
+
+~~~bash
+pip install transformers accelerate torch
+~~~
+
+---
+
+### Variables de entorno
+
+La API key de RapidAPI debe gestionarse mediante variables de entorno y no debe incluirse en el código.
+
+En Windows PowerShell:
+
+~~~powershell
+$env:RAPIDAPI_KEY="tu_api_key"
+$env:RAPIDAPI_HOST="twitter-api45.p.rapidapi.com"
+~~~
+
+Si se desea usar Hugging Face autenticado:
+
+~~~powershell
+$env:HF_TOKEN="tu_huggingface_token"
+~~~
+
+---
+
+### Ejecución recomendada
+
+1. Crear o activar el entorno virtual.
+2. Instalar dependencias con `requirements.txt`.
+3. Configurar las variables de entorno necesarias.
+4. Ejecutar el notebook principal.
+5. Revisar los resultados generados.
+6. Ejecutar opcionalmente la app de Streamlit.
+
+~~~bash
+jupyter notebook
+~~~
+
+~~~bash
+streamlit run app-streamlit.py
+~~~
+
+---
+
+## 🧠 11. Conclusión
+
+En esta tercera entrega se amplía el pipeline anterior incorporando análisis de redes sociales e integración con LLMs.
+
+El análisis con `NetworkX` permite transformar menciones entre usuarios en una estructura de grafo interpretable, calcular métricas de influencia y detectar comunidades.
+
+La integración con un modelo LLM local permite convertir los resultados numéricos del análisis de red en una explicación en lenguaje natural, facilitando la interpretación del comportamiento social observado.
+
+Con esta fase, el proyecto evoluciona desde un pipeline de extracción y análisis textual hacia un sistema más completo que combina:
+
+- extracción de datos desde API,
+- procesamiento NLP,
+- análisis de redes,
+- visualización,
+- e interpretación automática mediante LLMs.

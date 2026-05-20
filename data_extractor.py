@@ -1018,3 +1018,73 @@ class DataExtractor:
         )
 
         return llm_analysis.strip()
+
+    def export_network_results(
+            self,
+            network_results: dict = None,
+            llm_analysis: str = None,
+            output_dir: str = "output"
+    ) -> None:
+        """
+        Exporta los resultados del análisis de red y del análisis LLM.
+
+        Archivos generados:
+        - network_metrics.csv
+        - network_summary.csv
+        - llm_network_analysis.txt
+        """
+
+        import os
+        import pandas as pd
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        if network_results is None:
+            network_results = self.analyze_network()
+
+        # -----------------------
+        # 1. Métricas de red
+        # -----------------------
+        metrics_df = network_results["metrics"]
+
+        metrics_df.to_csv(
+            os.path.join(output_dir, "network_metrics.csv"),
+            index=False,
+            encoding="utf-8"
+        )
+
+        # -----------------------
+        # 2. Resumen de red
+        # -----------------------
+        summary = network_results["summary"].copy()
+
+        # top_3_central_users es un DataFrame, no se puede guardar directamente en una fila CSV
+        if "top_3_central_users" in summary:
+            top_users_df = summary.pop("top_3_central_users")
+
+            top_users_df.to_csv(
+                os.path.join(output_dir, "network_top_3_users.csv"),
+                index=False,
+                encoding="utf-8"
+            )
+
+        summary_df = pd.DataFrame([summary])
+
+        summary_df.to_csv(
+            os.path.join(output_dir, "network_summary.csv"),
+            index=False,
+            encoding="utf-8"
+        )
+
+        # -----------------------
+        # 3. Análisis generado por LLM
+        # -----------------------
+        if llm_analysis is not None:
+            with open(
+                    os.path.join(output_dir, "llm_network_analysis.txt"),
+                    "w",
+                    encoding="utf-8"
+            ) as file:
+                file.write(llm_analysis)
+
+        print("Network results exported successfully.")

@@ -7,12 +7,14 @@ import matplotlib.pyplot as plt
 
 import requests
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import spacy
 from collections import Counter
 import math
 from spacytextblob.spacytextblob import SpacyTextBlob
+import networkx as nx
 
 
 class DataExtractor:
@@ -39,7 +41,8 @@ class DataExtractor:
             raise FileNotFoundError(f"File {self.source_file} not found.")
 
         if self.source_file.endswith(".csv"):
-            reader = pd.read_csv(self.source_file, encoding="utf-8", engine="python", chunksize=self.chunksize, on_bad_lines='skip')
+            reader = pd.read_csv(self.source_file, encoding="utf-8", engine="python", chunksize=self.chunksize,
+                                 on_bad_lines='skip')
             self.data = pd.concat(reader, ignore_index=True)
         elif self.source_file.endswith(".json"):
             self.data = pd.read_json(self.source_file, encoding="utf-8", lines=True)
@@ -101,6 +104,17 @@ class DataExtractor:
 
         return keywords
 
+    @staticmethod
+    def extract_mentions(text: str) -> list:
+        """
+        Extrae menciones de usuario dentro de un texto.
+        Ejemplo: '@Tesla @elonmusk' -> ['Tesla', 'elonmusk']
+        """
+        if not isinstance(text, str):
+            return []
+
+        return re.findall(r'@(\w+)', text)
+
     def analytics_hashtags_extended(self) -> dict:
         """
         Realiza análisis global, por usuario y por fecha de los hashtags.
@@ -156,7 +170,8 @@ class DataExtractor:
 
         return {'overall': overall, 'by_user': by_user, 'by_date': by_date, 'keywords_overall': keywords_overall}
 
-    def generate_hashtag_wordcloud(self, overall_df: pd.DataFrame = None, max_words: int = 100, figsize: tuple = (10, 6)) -> None:
+    def generate_hashtag_wordcloud(self, overall_df: pd.DataFrame = None, max_words: int = 100,
+                                   figsize: tuple = (10, 6)) -> None:
         """
         Genera una wordcloud de hashtags.
         """
@@ -474,7 +489,6 @@ class DataExtractor:
             "perplexity": perplexity
         }
 
-
     def analyze_sentiment(self, model: str = "en_core_web_sm") -> pd.DataFrame:
         """
         Analiza sentimiento usando spaCy + spacytextblob.
@@ -711,3 +725,366 @@ class DataExtractor:
 
         with open(f"{output_dir}/summary.txt", "w", encoding="utf-8") as f:
             f.write(summary)
+
+    def build_interaction_graph(self) -> nx.DiGraph:
+        """
+        Construye un grafo dirigido de interacciones entre usuarios.
+
+        Cada nodo representa un usuario.
+        Cada arista representa una mención:
+            user_name -> usuario_mencionado
+        """
+
+        if self.data is None:
+            raise ValueError("Data not loaded. Please load data first.")
+
+        required_columns = {"user_name", "text"}
+        if not required_columns.issubset(self.data.columns):
+            raise ValueError("Data must contain 'user_name' and 'text' columns.")
+
+        graph = nx.DiGraph()
+
+        for _, row in self.data.iterrows():
+            source_user = row.get("user_name")
+            text = row.get("text", "")
+
+            if not isinstance(source_user, str) or not source_user.strip():
+                continue
+
+            mentions = self.extract_mentions(text)
+
+            graph.add_node(source_user)
+
+            for mentioned_user in mentions:
+                if mentioned_user and mentioned_user != source_user:
+                    if graph.has_edge(source_user, mentioned_user):
+                        graph[source_user][mentioned_user]["weight"] += 1
+                    else:
+                        graph.add_edge(source_user, mentioned_user, weight=1)
+
+        self.interaction_graph = graph
+
+        return graph
+
+    def analyze_network(self) -> dict:
+        """
+        Calcula métricas básicas del grafo de interacción.
+        """
+
+        if not hasattr(self, "interaction_graph"):
+            self.build_interaction_graph()
+
+        graph = self.interaction_graph
+
+        if graph.number_of_nodes() == 0:
+            raise ValueError("The graph has no nodes.")
+
+        degree_centrality = nx.degree_centrality(graph)
+        in_degree_centrality = nx.in_degree_centrality(graph)
+        out_degree_centrality = nx.out_degree_centrality(graph)
+
+        try:
+            betweenness_centrality = nx.betweenness_centrality(graph)
+        except Exception:
+            betweenness_centrality = {}
+
+        metrics_df = pd.DataFrame({
+            "user": list(graph.nodes()),
+            "degree": [graph.degree(node) for node in graph.nodes()],
+            "in_degree": [graph.in_degree(node) for node in graph.nodes()],
+            "out_degree": [graph.out_degree(node) for node in graph.nodes()],
+            "degree_centrality": [degree_centrality.get(node, 0) for node in graph.nodes()],
+            "in_degree_centrality": [in_degree_centrality.get(node, 0) for node in graph.nodes()],
+            "out_degree_centrality": [out_degree_centrality.get(node, 0) for node in graph.nodes()],
+            "betweenness_centrality": [betweenness_centrality.get(node, 0) for node in graph.nodes()]
+        })
+
+        metrics_df = metrics_df.sort_values(
+            by="degree_centrality",
+            ascending=False
+        )
+
+        communities = list(nx.weakly_connected_components(graph))
+
+        hashtags_results = self.analytics_hashtags_extended()
+
+        top_hashtag = None
+
+        if not hashtags_results["overall"].empty:
+            top_hashtag = hashtags_results["overall"].iloc[0]["hashtag"]
+
+        summary = {
+            "num_nodes": graph.number_of_nodes(),
+            "num_edges": graph.number_of_edges(),
+            "density": nx.density(graph),
+            "num_communities": len(communities),
+            "top_3_central_users": metrics_df.head(3),
+            "top_hashtag": top_hashtag
+        }
+
+        return {
+            "graph": graph,
+            "metrics": metrics_df,
+            "communities": communities,
+            "summary": summary
+        }
+
+    def visualize_network(self, figsize: tuple = (12, 8), node_size: int = 800) -> None:
+        """
+        Visualiza el grafo de interacciones.
+        """
+
+        if not hasattr(self, "interaction_graph"):
+            self.build_interaction_graph()
+
+        graph = self.interaction_graph
+
+        if graph.number_of_nodes() == 0:
+            raise ValueError("The graph has no nodes.")
+
+        plt.figure(figsize=figsize)
+
+        pos = nx.spring_layout(graph, seed=42)
+
+        node_sizes = [
+            max(node_size * graph.degree(node), node_size)
+            for node in graph.nodes()
+        ]
+
+        nx.draw_networkx_nodes(
+            graph,
+            pos,
+            node_size=node_sizes,
+            alpha=0.7
+        )
+
+        nx.draw_networkx_edges(
+            graph,
+            pos,
+            arrows=True,
+            alpha=0.4
+        )
+
+        nx.draw_networkx_labels(
+            graph,
+            pos,
+            font_size=9
+        )
+
+        plt.title("Grafo de interacciones entre usuarios")
+        plt.axis("off")
+        plt.show()
+
+    def generate_network_insights_prompt(self, network_results: dict = None) -> str:
+        """
+        Genera un prompt estructurado para que un LLM interprete los resultados
+        del análisis de red.
+        """
+
+        if network_results is None:
+            network_results = self.analyze_network()
+
+        summary = network_results["summary"]
+        metrics = network_results["metrics"]
+        communities = network_results["communities"]
+
+        top_users = metrics.head(3)
+
+        top_users_text = "\n".join(
+            [
+                f"- {row['user']}: degree={row['degree']}, "
+                f"in_degree={row['in_degree']}, out_degree={row['out_degree']}, "
+                f"degree_centrality={row['degree_centrality']:.4f}"
+                for _, row in top_users.iterrows()
+            ]
+        )
+
+        top_communities = sorted(
+            communities,
+            key=len,
+            reverse=True
+        )[:5]
+
+        communities_text = "\n".join(
+            [
+                f"- Comunidad {i + 1}: {len(community)} usuarios. "
+                f"Ejemplos: {', '.join(list(community)[:10])}"
+                for i, community in enumerate(top_communities)
+            ]
+        )
+
+        hashtag_analysis = self.analytics_hashtags_extended()
+
+        if hashtag_analysis["overall"].empty:
+            top_hashtag = "No se han encontrado hashtags explícitos en el dataset."
+        else:
+            top_hashtag = hashtag_analysis["overall"].iloc[0]["hashtag"]
+
+        if hashtag_analysis["keywords_overall"].empty:
+            top_keywords = "No se han encontrado keywords relevantes."
+        else:
+            top_keywords = ", ".join(
+                hashtag_analysis["keywords_overall"].head(10)["keyword"].tolist()
+            )
+
+        prompt = f"""
+    Eres un analista experto en redes sociales, análisis de grafos y comportamiento de usuarios.
+
+    Analiza los siguientes resultados obtenidos a partir de tweets sobre una temática concreta.
+
+    DATOS GENERALES DE LA RED:
+    - Número de nodos: {summary["num_nodes"]}
+    - Número de aristas: {summary["num_edges"]}
+    - Densidad de la red: {summary["density"]:.6f}
+    - Número de comunidades detectadas: {summary["num_communities"]}
+
+    TOP 3 USUARIOS MÁS CENTRALES:
+    {top_users_text}
+
+    COMUNIDADES PRINCIPALES:
+    {communities_text}
+
+    HASHTAG MÁS FRECUENTE:
+    {top_hashtag}
+
+    KEYWORDS MÁS FRECUENTES:
+    {top_keywords}
+
+    TAREA:
+    Redacta un análisis claro en español que incluya:
+    1. Interpretación general de la estructura de la red.
+    2. Significado de los usuarios más centrales.
+    3. Interpretación de las comunidades detectadas.
+    4. Relación entre keywords/hashtags y comportamiento de la red.
+    5. Conclusiones finales sobre la dinámica social observada.
+
+    Responde con un estilo académico, claro y breve.
+    """
+        return prompt.strip()
+
+    def analyze_network_with_llm(
+            self,
+            network_results: dict = None,
+            model_name: str = "google/gemma-4-E2B-it",
+            max_new_tokens: int = 500
+    ) -> str:
+        """
+        Utiliza un modelo LLM local mediante transformers para interpretar
+        los resultados del análisis de red.
+        """
+
+        import torch
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+
+        prompt = self.generate_network_insights_prompt(network_results)
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            device_map="auto",
+            torch_dtype="auto"
+        )
+
+        messages = [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+
+        inputs = tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_tensors="pt",
+            return_dict=True
+        ).to(model.device)
+
+        output_ids = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            pad_token_id=tokenizer.eos_token_id
+        )
+
+        prompt_length = inputs["input_ids"].shape[-1]
+
+        generated_ids = output_ids[0][prompt_length:]
+
+        llm_analysis = tokenizer.decode(
+            generated_ids,
+            skip_special_tokens=True
+        )
+
+        return llm_analysis.strip()
+
+    def export_network_results(
+            self,
+            network_results: dict = None,
+            llm_analysis: str = None,
+            output_dir: str = "output"
+    ) -> None:
+        """
+        Exporta los resultados del análisis de red y del análisis LLM.
+
+        Archivos generados:
+        - network_metrics.csv
+        - network_summary.csv
+        - llm_network_analysis.txt
+        """
+
+        import os
+        import pandas as pd
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        if network_results is None:
+            network_results = self.analyze_network()
+
+        # -----------------------
+        # 1. Métricas de red
+        # -----------------------
+        metrics_df = network_results["metrics"]
+
+        metrics_df.to_csv(
+            os.path.join(output_dir, "network_metrics.csv"),
+            index=False,
+            encoding="utf-8"
+        )
+
+        # -----------------------
+        # 2. Resumen de red
+        # -----------------------
+        summary = network_results["summary"].copy()
+
+        # top_3_central_users es un DataFrame, no se puede guardar directamente en una fila CSV
+        if "top_3_central_users" in summary:
+            top_users_df = summary.pop("top_3_central_users")
+
+            top_users_df.to_csv(
+                os.path.join(output_dir, "network_top_3_users.csv"),
+                index=False,
+                encoding="utf-8"
+            )
+
+        summary_df = pd.DataFrame([summary])
+
+        summary_df.to_csv(
+            os.path.join(output_dir, "network_summary.csv"),
+            index=False,
+            encoding="utf-8"
+        )
+
+        # -----------------------
+        # 3. Análisis generado por LLM
+        # -----------------------
+        if llm_analysis is not None:
+            with open(
+                    os.path.join(output_dir, "llm_network_analysis.txt"),
+                    "w",
+                    encoding="utf-8"
+            ) as file:
+                file.write(llm_analysis)
+
+        print("Network results exported successfully.")
